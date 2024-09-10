@@ -13,7 +13,7 @@ def extract_references(wikitext):
         references.append(str(tag))
 
     # Extract lines from specific sections
-    for section in wikicode.get_sections():
+    for section in wikicode.get_sections(levels=[2]):
         section_title = section.filter_headings()
         if section_title:
             title_text = section_title[0].title.strip_code().strip()
