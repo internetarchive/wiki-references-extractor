@@ -32,6 +32,10 @@ To get a list of wikitext reference strings for an article, run `article.py` wit
 
 Each reference in the output is separated by two newlines. This is to help visually distinguish between individual references when there are multi-line reference strings.
 
+To request references for an article as of a certain point in time, specify a timestamp in the `YYYY-MM-DDTHH:mm:ssZ` format:
+
+`python3 article.py "Easter Island" 2004-01-01T00:00:00Z`
+
 ## Usage in code
 
 First, make sure that the dependencies in `requirements.txt` are installed.
