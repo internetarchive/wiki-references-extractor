@@ -1,7 +1,7 @@
 import mwparserfromhell
-import requests
 import sys
 from list import extract_list_items
+from wikiapi import get_current_timestamp, get_wikipedia_article
 
 def extract_references(wikitext):
     wikicode = mwparserfromhell.parse(wikitext)
@@ -21,15 +21,22 @@ def extract_references(wikitext):
                 for line in extract_list_items(section):
                     if line.strip().startswith('*') or line.strip().startswith('#'):
                         references.append(line.strip())
-
     return references
 
 def extract_references_from_page(title, domain="en.wikipedia.org", as_of=None):
+    if as_of is None:
+        as_of = get_current_timestamp()
     title = title.replace(" ", "_")
-    wikitext = requests.get(f"https://{domain}/wiki/{title}?action=raw").text
+    wikitext = get_wikipedia_article(domain, title, as_of)
     return extract_references(wikitext)
 
 if __name__ == "__main__":
-    page_title = sys.argv[1]
-    for ref in extract_references_from_page(page_title):
+    page_title = "Easter Island"
+    as_of = None
+    if len(sys.argv) >= 2:
+        page_title = sys.argv[1]
+        if len(sys.argv) == 3:
+            as_of = sys.argv[2]
+
+    for ref in extract_references_from_page(page_title, as_of=as_of):
         print(ref, end="\n\n")
