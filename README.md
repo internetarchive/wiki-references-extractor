@@ -55,6 +55,12 @@ By default, pages are retrieved from English Wikipedia. To specify a different M
 references_list = extract_references_from_page(page_title, domain="fr.wikipedia.org")
 ```
 
+You can also look up data for an article at a given point in time using a timestamp in standard `YYYY-MM-DDTHH:mm:ssZ` format:
+
+```python
+references_list = extract_references_from_page(page_title, as_of="2008-06-01T00:00:00Z")
+```
+
 ### From wikicode
 
 You can also extract directly from wikitext:
