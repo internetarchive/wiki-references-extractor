@@ -4,7 +4,9 @@ The `wiki-references-extractor` is a component in the third-generation Wikipedia
 
 In this context, a Wikipedia article "reference" is:
 - Anything between `<ref>` and `</ref>` tags, inclusive of the tags themselves, corresponding to an in-line citation.
+- A call of the `{{Sfn}}` template which creates an in-line citation
 - A line item (ordered or unordered) in the "Bibliography", "Further reading", or "External links" sections, corresponding to an endnote.
+- Any standalone external link that is not a part of any other reference.
 
 References can contain any arbitrary wikitext.
 
