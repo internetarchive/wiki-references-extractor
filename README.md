@@ -2,10 +2,15 @@
 
 The `wiki-references-extractor` is a component in the third-generation Wikipedia Citations Database. It is built to support the `wiki-references-db` (which builds a database of these extracted references) and the Internet Archive Reference Explorer (which provides similar data as an API).
 
-In this context, a Wikipedia article "reference" is:
-- Anything between `<ref>` and `</ref>` tags, inclusive of the tags themselves, corresponding to an in-line citation.
-- A call of the `{{Sfn}}` template which creates an in-line citation
-- A line item (ordered or unordered) in the "Bibliography", "Further reading", or "External links" sections, corresponding to an endnote.
+In this context, a Wikipedia article "reference" includes:
+
+- In-line citations
+-- Anything between `<ref>` and `</ref>` tags, inclusive of the tags themselves.
+-- A call of the `{{Sfn}}` template.
+- Endnotes
+-- A list item (ordered or unordered) in certain sections like "Bibliography", "Further reading", or "External links" sections with any content.
+- Other references
+-- A list item (ordered or unordered) in any section with a link on it
 - Any standalone external link that is not a part of any other reference.
 
 References can contain any arbitrary wikitext.
