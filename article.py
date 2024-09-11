@@ -11,7 +11,7 @@ def extract_urls_from_text(text):
 
 def extract_references(wikitext):
     wikicode = mwparserfromhell.parse(wikitext)
-    reference_sections = ["further reading", "external links", "bibliography"]
+    reference_sections = ["further reading", "external links", "bibliography", "works cited", "books", "articles"]
     references = []
     found_urls = set()
 
@@ -20,6 +20,8 @@ def extract_references(wikitext):
         for url in extract_urls_from_text(str(tag)):
             found_urls.add(url)
         references.append(str(tag))
+        # Remove to prevent confusion later in the process
+        wikicode.remove(tag)
 
     # Extract all {{Sfn}} templates in the body of the article
     for template in wikicode.filter_templates():
@@ -27,17 +29,23 @@ def extract_references(wikitext):
             for url in extract_urls_from_text(str(template)):
                 found_urls.add(url)
             references.append(str(template))
+            wikicode.remove(template)
 
-    # Extract lines from specific sections
-    for section in wikicode.get_sections(levels=[2]):
+    # Extract all list items with links, or list items in certain sections
+    # regardless of link presence
+    for section in wikicode.get_sections(levels=[2,3], include_lead=True):
         section_title = section.filter_headings()
         if section_title:
             title_text = section_title[0].title.strip_code().strip()
-            if title_text.lower() in reference_sections:
-                for line in extract_list_items(section):
-                    if line.strip().startswith('*') or line.strip().startswith('#'):
-                        for url in extract_urls_from_text(str(line)):
-                            found_urls.add(url)
+        else:
+            title_text = ""
+        for line in extract_list_items(section):
+            if line.strip().startswith('*') or line.strip().startswith('#'):
+                extracted_urls = extract_urls_from_text(str(line))
+                if len(extracted_urls) > 0 or title_text.lower() in reference_sections:
+                    for url in extracted_urls:
+                        found_urls.add(url)
+                    if line.strip() not in references:
                         references.append(line.strip())
 
     # Extract external link nodes not attached to any other reference type
