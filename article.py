@@ -4,6 +4,15 @@ import sys
 from list import extract_list_items
 from wikiapi import get_current_timestamp, get_wikipedia_article
 
+reference_sections = [
+    "references",
+    "further reading",
+    "external links",
+    "bibliography",
+    "works cited",
+    "books",
+    "articles"]
+
 def extract_urls_from_text(text):
     url_regex = re.compile(r'(?:git|https?|ftps?)://[^\s\]\|\}]+')
     result = set(url_regex.findall(text))
@@ -11,7 +20,6 @@ def extract_urls_from_text(text):
 
 def extract_references(wikitext):
     wikicode = mwparserfromhell.parse(wikitext)
-    reference_sections = ["further reading", "external links", "bibliography", "works cited", "books", "articles"]
     references = []
     found_urls = set()
 
@@ -33,7 +41,7 @@ def extract_references(wikitext):
 
     # Extract all list items with links, or list items in certain sections
     # regardless of link presence
-    for section in wikicode.get_sections(levels=[2,3], include_lead=True):
+    for section in wikicode.get_sections(levels=[2], include_lead=True):
         section_title = section.filter_headings()
         if section_title:
             title_text = section_title[0].title.strip_code().strip()

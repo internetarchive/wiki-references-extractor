@@ -2,9 +2,9 @@ import mwparserfromhell
 from testcases.easter_island import wikitext
 
 template_marker = "℻℻"
+template_count = 0
 
 def replace_templates_recursively(wikicode, templates, template_count):
-    """Recursively replace templates and store them in the templates dict."""
     for template in wikicode.filter_templates(recursive=False):
         # Replace the innermost template with a placeholder
         template_id = f"{{{{{template_marker}_{template_count}}}}}"
@@ -14,11 +14,11 @@ def replace_templates_recursively(wikicode, templates, template_count):
     return wikicode, template_count
 
 def extract_list_items(wikitext):
+    global template_count
     wikicode = mwparserfromhell.parse(wikitext)
     list_items = []
     current_item = ""
     templates = {}
-    template_count = 0
 
     # Step 1: Recursively replace templates with placeholders and store them
     wikicode, template_count = replace_templates_recursively(wikicode, templates, template_count)
