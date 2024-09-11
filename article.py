@@ -12,6 +12,11 @@ def extract_references(wikitext):
     for tag in wikicode.filter_tags(matches=lambda node: node.tag == "ref"):
         references.append(str(tag))
 
+    # Extract all {{Sfn}} templates in the body of the article
+    for template in wikicode.filter_templates():
+        if template.name.matches("Sfn"):
+            references.append(str(template))
+
     # Extract lines from specific sections
     for section in wikicode.get_sections(levels=[2]):
         section_title = section.filter_headings()
