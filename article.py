@@ -1,8 +1,8 @@
 import mwparserfromhell
 import re
 import sys
-from wikilist import extract_list_items
-from wikiapi import get_current_timestamp, get_wikipedia_article
+from .wikilist import extract_list_items
+from .wikiapi import get_current_timestamp, get_wikipedia_article
 
 reference_sections = [
     "references",
@@ -68,7 +68,7 @@ def extract_references_from_page(title, domain="en.wikipedia.org", as_of=None):
         as_of = get_current_timestamp()
     title = title.replace(" ", "_")
     page_id, wikitext = get_wikipedia_article(domain, title, as_of)
-    return extract_references(wikitext)
+    return page_id, extract_references(wikitext)
 
 if __name__ == "__main__":
     page_title = "Easter Island"

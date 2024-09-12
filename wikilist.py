@@ -1,5 +1,5 @@
 import mwparserfromhell
-from testcases.easter_island import wikitext
+from .testcases.easter_island import wikitext
 
 template_marker = "℻℻"
 template_count = 0
