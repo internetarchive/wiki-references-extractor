@@ -27,7 +27,7 @@ def get_wikipedia_article(domain, title, timestamp):
         pages = data.get("query", {}).get("pages", {})
         for page_id, page_info in pages.items():
             if "missing" in page_info:
-                return None, None  # Article did not exist at the given time
+                return None, None, None  # Article did not exist at the given time
             revisions = page_info.get("revisions", [])
             # Check each revision to find the target one
             for rev in revisions:
@@ -48,13 +48,13 @@ def get_wikipedia_article(domain, title, timestamp):
                     for page_id, page_info in content_data.get("query", {}).get("pages", {}).items():
                         content_revisions = page_info.get("revisions", [])
                         if content_revisions:
-                            return page_id, content_revisions[0]["*"]
-                    return None, None
+                            return page_id, revision_id, content_revisions[0]["*"]
+                    return None, None, None
         continue_token = data.get("continue", {}).get("rvcontinue")
         if not continue_token:
             break
     # Return None if no suitable revision was found
-    return None, None
+    return None, None, None
 
 if __name__ == "__main__":
     print(get_wikipedia_article("en.wikipedia.org", "Easter_Island", "2003-01-01T00:00:00Z"))
