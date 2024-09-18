@@ -29,7 +29,10 @@ def extract_references(wikitext):
             found_urls.add(url)
         references.append(str(tag))
         # Remove to prevent confusion later in the process
-        wikicode.remove(tag)
+        try:
+            wikicode.remove(tag)
+        except ValueError:  # Already removed, somehow
+            pass
 
     # Extract all {{Sfn}} templates in the body of the article
     for template in wikicode.filter_templates():
@@ -67,8 +70,8 @@ def extract_references_from_page(title, domain="en.wikipedia.org", as_of=None):
     if as_of is None:
         as_of = get_current_timestamp()
     title = title.replace(" ", "_")
-    page_id, wikitext = get_wikipedia_article(domain, title, as_of)
-    return page_id, extract_references(wikitext)
+    page_id, revision_id, revision_timestamp, wikitext = get_wikipedia_article(domain, title, as_of)
+    return page_id, revision_id, revision_timestamp, extract_references(wikitext)
 
 if __name__ == "__main__":
     page_title = "Easter Island"
