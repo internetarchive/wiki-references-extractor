@@ -23,6 +23,13 @@ def extract_references(wikitext):
     references = []
     found_urls = set()
 
+    # Remove all HTML comments
+    for comment in wikicode.filter_comments():
+        try:
+            wikicode.remove(comment)
+        except ValueError:  # Already removed, somehow
+            pass
+
     # Extract <ref> tags content
     for tag in wikicode.filter_tags(matches=lambda node: node.tag == "ref"):
         for url in extract_urls_from_text(str(tag)):
