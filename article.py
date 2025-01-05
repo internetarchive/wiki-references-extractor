@@ -47,7 +47,10 @@ def extract_references(wikitext):
             for url in extract_urls_from_text(str(template)):
                 found_urls.add(url)
             references.append(str(template))
-            wikicode.remove(template)
+            try:
+                wikicode.remove(template)
+            except ValueError:  # Already removed, somehow
+                pass
 
     # Extract all list items with links, or list items in certain sections
     # regardless of link presence
