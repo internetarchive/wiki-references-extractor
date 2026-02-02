@@ -27,6 +27,14 @@ References can contain any arbitrary wikitext.
 
 5. `pip3 install -r requirements.txt`
 
+6. Copy `example.env` to `.env` and configure your contact email. Optionally, add a secondary product token to the User-Agent:
+
+```
+CONTACT_EMAIL=your-email@example.com
+# Example optional secondary token appended to User-Agent:
+# SECONDARY_USER_AGENT=YourApp/2.3
+```
+
 ## Command-line usage
 
 First, make sure you have the virtual environment activated:

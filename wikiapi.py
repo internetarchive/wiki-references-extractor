@@ -1,5 +1,36 @@
+import os
 import requests
 from datetime import datetime
+try:
+    from dotenv import load_dotenv  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    def load_dotenv(*_args, **_kwargs):  # type: ignore
+        return False
+
+
+def get_contact_email():
+    """Load contact email from environment/.env for polite API requests."""
+    # Load from a local .env if present; environment vars override
+    load_dotenv()
+    email = os.getenv("CONTACT_EMAIL")
+    if not email or "@" not in email:
+        raise EnvironmentError(
+            "CONTACT_EMAIL is not set or invalid. Create a .env file with CONTACT_EMAIL=you@example.com or set the env var."
+        )
+    return email
+
+
+def get_header():
+    # Primary product token with contact email inside comment per common practice
+    ua = f"WikiReferencesExtractor/1.0 ({get_contact_email()})"
+    # Optional secondary product token, space-separated after primary
+    # Example: YourApp/2.3 or YourApp/2.3; extra info
+    # Load from env/.env if provided
+    load_dotenv()
+    secondary = (os.getenv("SECONDARY_USER_AGENT") or "").strip()
+    if secondary:
+        ua = f"{ua} {secondary}"
+    return {"User-Agent": ua}
 
 def get_current_timestamp():
     now = datetime.utcnow()
@@ -22,8 +53,11 @@ def get_wikipedia_article(domain, title, timestamp):
         }
         if continue_token:
             params["rvcontinue"] = continue_token
-        response = requests.get(url, params=params)
-        data = response.json()
+        try:
+            response = requests.get(url, params=params, headers=get_header())
+            data = response.json()
+        except:
+            raise Exception(response.text)
         pages = data.get("query", {}).get("pages", {})
         for page_id, page_info in pages.items():
             if "missing" in page_info:
@@ -43,7 +77,7 @@ def get_wikipedia_article(domain, title, timestamp):
                             "revids": revision_id,
                             "rvprop": "content"
                         }
-                        content_response = requests.get(url, params=content_params)
+                        content_response = requests.get(url, params=content_params, headers=get_header())
                         content_data = content_response.json()
                         # Extract content
                         for page_id, page_info in content_data.get("query", {}).get("pages", {}).items():
