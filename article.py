@@ -1,8 +1,8 @@
 import mwparserfromhell
 import re
 import sys
-from wikilist import extract_list_items
-from wikiapi import get_current_timestamp, get_wikipedia_article
+from .wikilist import extract_list_items
+from .wikiapi import get_current_timestamp, get_wikipedia_article
 
 reference_sections = [
     "references",
@@ -79,7 +79,7 @@ def classify_reference_type(raw_reference: str) -> int:
         return 2
     return 0
 
-def extract_references(wikitext):
+def extract_references(wikitext, include_offsets: bool = False):
     """
     Extract raw references from the provided wikitext and return both the raw
     reference text and its character offsets (offset_start, offset_end) in the
@@ -91,6 +91,12 @@ def extract_references(wikitext):
     - offset_start: starting character offset (inclusive)
     - offset_end: ending character offset (exclusive)
     - reference_type: int enum describing the type (0=other, 1=inline, 2=endnote)
+    
+    Notes:
+    - The include_offsets parameter is accepted for compatibility with callers
+      that explicitly request offsets. Offsets are always computed by this
+      implementation; when include_offsets is False, the offsets are still
+      provided to maintain a consistent return shape.
     """
     original_wikitext = wikitext
     wikicode = mwparserfromhell.parse(wikitext)

@@ -2,6 +2,13 @@ import mwparserfromhell
 import hashlib
 import sys
 
+try:
+    # mwparserfromhell >= 0.6
+    from mwparserfromhell.nodes.extras.attribute import Attribute
+except Exception:  # pragma: no cover
+    # Fallback for older mwparserfromhell layouts
+    Attribute = None
+
 def get_sha1(*args) -> str:
     sha1 = hashlib.sha1()
     for arg in args:
@@ -22,7 +29,12 @@ def normalize_ref_tag(tag):
         if attr_name == "name":
             # Recreate the attribute with explicit double quotes
             # mwparserfromhell Attribute signature: Attribute(name, value=None, quotes=None)
-            new_attr = mwparserfromhell.nodes.attribute.Attribute(attribute.name, attribute.value, '"')
+            if Attribute is None:
+                raise RuntimeError(
+                    "mwparserfromhell Attribute class could not be imported; "
+                    "please upgrade mwparserfromhell"
+                )
+            new_attr = Attribute(attribute.name, attribute.value, '"')
             new_tag.attributes.append(new_attr)
         else:
             new_tag.attributes.append(attribute)
