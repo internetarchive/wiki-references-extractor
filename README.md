@@ -116,7 +116,7 @@ Each reference is a dictionary with the following keys:
 
 - `raw_reference`: the exact raw reference text as found in the wikitext
 - `offset_start`: starting character offset (inclusive)
-- `offset_end`: ending character offset (exclusive)
+- `length`: length of the raw reference in characters
 - `reference_type`: int enum describing the type (`0`=other, `1`=inline, `2`=endnote)
 - `reference_name`: the name attribute of the `<ref>` tag, if any
 - `templates`: list of parsed template calls found within the reference

@@ -420,14 +420,14 @@ def _scan_external_links(wikitext: str, ignored_spans, occupied_spans, found_url
 def extract_references(wikitext, include_offsets: bool = False):
     """
     Extract raw references from the provided wikitext and return both the raw
-    reference text and its character offsets (offset_start, offset_end) in the
+    reference text and its character offsets (offset_start, length) in the
     original, UTF-8 decoded wikitext (prior to any normalization, expansion, or
     rendering).
 
     Returns a list of dicts with keys:
     - raw_reference: the exact raw reference text as found in the wikitext
     - offset_start: starting character offset (inclusive)
-    - offset_end: ending character offset (exclusive)
+    - length: length of the raw reference in characters
     - reference_type: int enum describing the type (0=other, 1=inline, 2=endnote)
     
     Notes:
@@ -484,7 +484,7 @@ def extract_references(wikitext, include_offsets: bool = False):
         results.append({
             "raw_reference": ref_text,
             "offset_start": start,
-            "offset_end": end,
+            "length": end - start,
             "reference_type": classify_reference_type(ref_text),
             "reference_name": c.get("reference_name"),
             "templates": extract_templates_from_text(ref_text),
