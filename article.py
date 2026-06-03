@@ -3,22 +3,23 @@ import re
 import sys
 from .wikilist import extract_list_items
 from .wikiapi import get_current_timestamp, get_wikipedia_article
+from wiki_config import get_reference_sections, get_citation_template_prefixes, get_citation_template_exact
 
-reference_sections = [
-    "articles",
-    "audiobooks",
-    "bibliography",
-    "books",
-    "external links",
-    "further reading",
-    "references",
-    "sources",
-    "works cited"
-]
+# Unicode punctuation that may cling to extracted URLs (curly quotes, guillemets, etc.)
+_URL_TRAILING_PUNCT = set('\u201c\u201d\u2018\u2019\u00ab\u00bb\u2039\u203a.,;:!?\u2026)\u201e\u201a')
+
+
+def _strip_trailing_url_punct(url: str) -> str:
+    """Remove common trailing Unicode/typographic punctuation from a URL."""
+    while url and url[-1] in _URL_TRAILING_PUNCT:
+        url = url[:-1]
+    return url
+
 
 def extract_urls_from_text(text):
     url_regex = re.compile(r'(?:git|https?|ftps?)://[^\s\]\|\}]+')
-    result = set(url_regex.findall(text))
+    result = set(_strip_trailing_url_punct(u) for u in url_regex.findall(text))
+    result.discard('')
     return result
 
 def extract_templates_from_text(text):
@@ -69,7 +70,7 @@ def extract_templates_from_text(text):
 
 # reference_type values (application-level enum)
 # 0=other; 1=inline; 2=endnote (extensible)
-def classify_reference_type(raw_reference: str) -> int:
+def classify_reference_type(raw_reference: str, domain: str = "en.wikipedia.org") -> int:
     if not raw_reference:
         return 0
     text = raw_reference.lower()
@@ -77,8 +78,14 @@ def classify_reference_type(raw_reference: str) -> int:
     if '<ref' in text:
         return 1
     # Endnotes often show as list items in References with citation templates
-    if '{{cite' in text or '{{citation' in text:
-        return 2
+    # Prefixes match the start of a template name (e.g. "cite" matches "{{cite web}}")
+    for prefix in get_citation_template_prefixes(domain):
+        if '{{' + prefix in text:
+            return 2
+    # Exact names must match the full template name
+    for exact in get_citation_template_exact(domain):
+        if '{{' + exact + '}}' in text or '{{' + exact + '|' in text:
+            return 2
     return 0
 
 
@@ -111,15 +118,39 @@ def _find_comment_spans(wikitext: str):
     return spans
 
 
+# Characters permitted in a reference name (allowlist).
+_LEGAL_REF_NAME_RE = re.compile(r'^[\w .,:;!?\-+#@&=%()\'\[\]/]+$', re.UNICODE)
+
+
+def _sanitize_ref_name(name: str):
+    """Truncate a ref name at the first character not in the allowlist."""
+    if not name:
+        return name
+    for i, ch in enumerate(name):
+        if not _LEGAL_REF_NAME_RE.match(ch):
+            name = name[:i]
+            break
+    result = name.strip()
+    return result if result else None
+
+
 def _extract_ref_name_from_tag_open(tag_open_text: str):
-    # Minimal attribute parsing for name= (supports quoted and unquoted values)
-    m = re.search(r"\bname\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s/>]+))", tag_open_text, flags=re.IGNORECASE)
+    # Minimal attribute parsing for name= (supports quoted, curly-quoted, and unquoted values)
+    m = re.search(
+        r'\bname\s*=\s*(?:'
+        r'"([^"]*)"|'              # straight double quotes
+        r"'([^']*)'|"              # straight single quotes
+        r'\u201c([^\u201d]*)\u201d|'  # curly double quotes
+        r'\u2018([^\u2019]*)\u2019|'  # curly single quotes
+        r'([^\s/>]+)'              # unquoted fallback
+        r')',
+        tag_open_text, flags=re.IGNORECASE
+    )
     if not m:
         return None
-    # If the name attribute exists but is empty, return empty string (matches prior behavior)
     for g in m.groups():
         if g is not None:
-            return g
+            return _sanitize_ref_name(g)
     return ""
 
 
@@ -143,10 +174,11 @@ def _scan_ref_tags(wikitext: str, ignored_spans):
         while j < n:
             ch = wikitext[j]
             if in_quote:
-                if ch == in_quote:
+                closing = {'"': '"', "'": "'", '\u201c': '\u201d', '\u2018': '\u2019'}
+                if ch == closing.get(in_quote, in_quote):
                     in_quote = None
             else:
-                if ch in ("\"", "'"):
+                if ch in ('"', "'", '\u201c', '\u2018'):
                     in_quote = ch
                 elif ch == ">":
                     break
@@ -195,6 +227,22 @@ def _scan_ref_tags(wikitext: str, ignored_spans):
     return results
 
 
+# Characters permitted in an extracted template/reference name (broad allowlist).
+_LEGAL_EXTRACTED_NAME_RE = re.compile(r'^[\w .,:;!?\-+#@&=%()\'\[\]/]+$', re.UNICODE)
+
+
+def _sanitize_extracted_name(name: str):
+    """Truncate an extracted name at the first pathological character."""
+    if not name:
+        return name
+    for i, ch in enumerate(name):
+        if not _LEGAL_EXTRACTED_NAME_RE.match(ch):
+            name = name[:i]
+            break
+    result = name.strip()
+    return result if result else None
+
+
 def _normalize_template_name(name: str) -> str:
     return name.strip().replace("_", " ").lower()
 
@@ -220,6 +268,7 @@ def _scan_sfn_templates(wikitext: str, ignored_spans, occupied_spans):
         while j < n and wikitext[j] not in ("|", "}"):
             j += 1
         name = wikitext[name_start:j]
+        name = _sanitize_extracted_name(name) or ""
         norm = _normalize_template_name(name)
         if norm != "sfn":
             i = start + 2
@@ -338,8 +387,9 @@ def _extract_list_items_with_offsets(section_text: str, base_offset: int):
     return items
 
 
-def _scan_list_item_references(wikitext: str, ignored_spans, occupied_spans, found_urls):
+def _scan_list_item_references(wikitext: str, ignored_spans, occupied_spans, found_urls, domain: str = "en.wikipedia.org"):
     results = []
+    ref_sections = get_reference_sections(domain)
     for title, _section_start, section_end, body_start in _iter_level2_sections(wikitext):
         # Only scan body text (skip heading line itself)
         section_body = wikitext[body_start:section_end]
@@ -351,7 +401,7 @@ def _scan_list_item_references(wikitext: str, ignored_spans, occupied_spans, fou
                 continue
 
             extracted_urls = extract_urls_from_text(raw_item)
-            keep = len(extracted_urls) > 0 or title_norm in reference_sections
+            keep = len(extracted_urls) > 0 or title_norm in ref_sections
             if not keep:
                 continue
 
@@ -417,7 +467,7 @@ def _scan_external_links(wikitext: str, ignored_spans, occupied_spans, found_url
 
     return results
 
-def extract_references(wikitext, include_offsets: bool = False):
+def extract_references(wikitext, include_offsets: bool = False, domain: str = "en.wikipedia.org"):
     """
     Extract raw references from the provided wikitext and return both the raw
     reference text and its character offsets (offset_start, length) in the
@@ -455,7 +505,7 @@ def extract_references(wikitext, include_offsets: bool = False):
             found_urls.add(url)
 
     # 3) List items by section + line scanning, using section-title rules
-    list_candidates = _scan_list_item_references(wikitext, ignored_spans, occupied_spans, found_urls)
+    list_candidates = _scan_list_item_references(wikitext, ignored_spans, occupied_spans, found_urls, domain=domain)
 
     # 4) External links not attached to any other reference type
     external_candidates = _scan_external_links(wikitext, ignored_spans, occupied_spans, found_urls)
@@ -485,7 +535,7 @@ def extract_references(wikitext, include_offsets: bool = False):
             "raw_reference": ref_text,
             "offset_start": start,
             "length": end - start,
-            "reference_type": classify_reference_type(ref_text),
+            "reference_type": classify_reference_type(ref_text, domain=domain),
             "reference_name": c.get("reference_name"),
             "templates": extract_templates_from_text(ref_text),
             "urls": sorted(list(extract_urls_from_text(ref_text))),
@@ -498,4 +548,4 @@ def extract_references_from_page(title, domain="en.wikipedia.org", as_of=None):
         as_of = get_current_timestamp()
     title = title.replace(" ", "_")
     page_id, revision_id, revision_timestamp, wikitext = get_wikipedia_article(domain, title, as_of)
-    return page_id, revision_id, revision_timestamp, extract_references(wikitext)
+    return page_id, revision_id, revision_timestamp, extract_references(wikitext, domain=domain)
