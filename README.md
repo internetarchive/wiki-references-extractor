@@ -27,21 +27,33 @@ References can contain any arbitrary wikitext.
 
 5. `pip3 install -r requirements.txt`
 
+6. Copy `example.env` to `.env` and configure your contact email. Optionally, add a secondary product token to the User-Agent:
+
+```
+CONTACT_EMAIL=your-email@example.com
+# Example optional secondary token appended to User-Agent:
+# SECONDARY_USER_AGENT=YourApp/2.3
+```
+
 ## Command-line usage
 
 First, make sure you have the virtual environment activated:
 
 `source venv/bin/activate`
 
-To get a list of wikitext reference strings for an article, run `article.py` with the name of the title. Use quote marks if there are spaces, or use underscores in place of spaces.
+To get a list of wikitext reference strings for an article, run the extractor with the name of the title. Use quote marks if there are spaces, or use underscores in place of spaces.
 
-`python3 article.py "Easter Island"`
+`python3 -m refs_extractor "Easter Island"`
 
-Each reference in the output is separated by two newlines. This is to help visually distinguish between individual references when there are multi-line reference strings.
+By default, each reference is printed as raw wikitext, separated by two newlines. This is to help visually distinguish between individual references when there are multi-line reference strings.
+
+To print the full JSON output (including page/revision metadata and per-reference extracted fields), add `--full`:
+
+`python3 -m refs_extractor --full "Easter Island"`
 
 To request references for an article as of a certain point in time, specify a timestamp in the `YYYY-MM-DDTHH:mm:ssZ` format:
 
-`python3 article.py "Easter Island" 2004-01-01T00:00:00Z`
+`python3 -m refs_extractor "Easter Island" 2004-01-01T00:00:00Z`
 
 ## Usage in code
 
@@ -54,25 +66,30 @@ from refs_extractor.article import extract_references_from_page
 
 page_title = "Easter Island"
 
-references_list = extract_references_from_page(page_title)
+page_id, revision_id, revision_timestamp, references = extract_references_from_page(page_title)
 
-for ref in references_list:
-    print(f"Reference found: {ref}")
+print(f"Page {page_id}, revision {revision_id} ({revision_timestamp})")
+for ref in references:
+    print(ref["raw_reference"])
 ```
 
 By default, pages are retrieved from English Wikipedia. To specify a different MediaWiki site, use the `domain` parameter.
 
 ```python
-references_list = extract_references_from_page(page_title, domain="fr.wikipedia.org")
+page_id, revision_id, revision_timestamp, references = extract_references_from_page(
+    page_title, domain="fr.wikipedia.org"
+)
 ```
 
 You can also look up data for an article at a given point in time using a timestamp in standard `YYYY-MM-DDTHH:mm:ssZ` format:
 
 ```python
-references_list = extract_references_from_page(page_title, as_of="2008-06-01T00:00:00Z")
+page_id, revision_id, revision_timestamp, references = extract_references_from_page(
+    page_title, as_of="2008-06-01T00:00:00Z"
+)
 ```
 
-### From wikicode
+### From wikitext
 
 You can also extract directly from wikitext:
 
@@ -89,8 +106,18 @@ Example wiki article.<ref>https://example.com</ref>
 * [https://archive.org Internet Archive]
 """
 
-references_list = extract_references(wikitext)
+references = extract_references(wikitext)
 
-for ref in references_list:
-    print(f"Reference found: {ref}")
+for ref in references:
+    print(ref["raw_reference"])
 ```
+
+Each reference is a dictionary with the following keys:
+
+- `raw_reference`: the exact raw reference text as found in the wikitext
+- `offset_start`: starting character offset (inclusive)
+- `length`: length of the raw reference in characters
+- `reference_type`: int enum describing the type (`0`=other, `1`=inline, `2`=endnote)
+- `reference_name`: the name attribute of the `<ref>` tag, if any
+- `templates`: list of parsed template calls found within the reference
+- `urls`: sorted list of URLs found within the reference
