@@ -155,6 +155,12 @@ def _scan_ref_tags(wikitext: str, ignored_spans):
             i = start + 4
             continue
 
+        # Skip tags like <references /> — only match <ref> / <ref ...>
+        next_pos = start + 4
+        if next_pos < n and lower[next_pos].isalpha():
+            i = next_pos
+            continue
+
         # Parse opening tag up to '>' respecting quoted attribute values
         j = start + 4
         in_quote = None
