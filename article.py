@@ -4,6 +4,7 @@ import sys
 from .wikilist import extract_list_items
 from .wikiapi import get_current_timestamp, get_wikipedia_article
 from wiki_config import get_reference_sections, get_citation_template_prefixes, get_citation_template_exact
+from citation_normalizer import sanitize_ref_name as _sanitize_ref_name, sanitize_extracted_name as _sanitize_extracted_name, normalize_template_name as _normalize_template_name
 
 # Unicode punctuation that may cling to extracted URLs (curly quotes, guillemets, etc.)
 _URL_TRAILING_PUNCT = set('\u201c\u201d\u2018\u2019\u00ab\u00bb\u2039\u203a.,;:!?\u2026)\u201e\u201a')
@@ -118,20 +119,6 @@ def _find_comment_spans(wikitext: str):
     return spans
 
 
-# Characters permitted in a reference name (allowlist).
-_LEGAL_REF_NAME_RE = re.compile(r'^[\w .,:;!?\-+#@&=%()\'\[\]/]+$', re.UNICODE)
-
-
-def _sanitize_ref_name(name: str):
-    """Truncate a ref name at the first character not in the allowlist."""
-    if not name:
-        return name
-    for i, ch in enumerate(name):
-        if not _LEGAL_REF_NAME_RE.match(ch):
-            name = name[:i]
-            break
-    result = name.strip()
-    return result if result else None
 
 
 def _extract_ref_name_from_tag_open(tag_open_text: str):
@@ -227,24 +214,6 @@ def _scan_ref_tags(wikitext: str, ignored_spans):
     return results
 
 
-# Characters permitted in an extracted template/reference name (broad allowlist).
-_LEGAL_EXTRACTED_NAME_RE = re.compile(r'^[\w .,:;!?\-+#@&=%()\'\[\]/]+$', re.UNICODE)
-
-
-def _sanitize_extracted_name(name: str):
-    """Truncate an extracted name at the first pathological character."""
-    if not name:
-        return name
-    for i, ch in enumerate(name):
-        if not _LEGAL_EXTRACTED_NAME_RE.match(ch):
-            name = name[:i]
-            break
-    result = name.strip()
-    return result if result else None
-
-
-def _normalize_template_name(name: str) -> str:
-    return name.strip().replace("_", " ").lower()
 
 
 def _scan_sfn_templates(wikitext: str, ignored_spans, occupied_spans):
