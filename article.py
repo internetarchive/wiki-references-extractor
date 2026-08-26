@@ -53,7 +53,7 @@ def extract_templates_from_text(text):
                 except Exception:
                     key = str(p.name)
                 try:
-                    value = str(p.value)
+                    value = str(p.value).strip()
                 except Exception:
                     value = ""
                 params.append({"key": key, "value": value})
