@@ -473,6 +473,9 @@ def _scan_list_item_references(wikitext: str, ignored_spans, occupied_spans, fou
             if not keep:
                 continue
 
+            if len(extracted_urls) == 0 and _INTERNAL_LINK_ONLY_RE.match(raw_item):
+                continue
+
             for url in extracted_urls:
                 found_urls.add(url)
 
@@ -486,6 +489,12 @@ def _scan_list_item_references(wikitext: str, ignored_spans, occupied_spans, fou
 
     return results
 
+
+_INTERNAL_LINK_ONLY_RE = re.compile(
+    r"^[*#:\s]*"
+    r"(\[\[[^\]]+\]\]\s*)+"
+    r"$"
+)
 
 # ``[url label]``: the URL starts right after ``[`` (no space or newline) and
 # the closing ``]`` is on the same line.
