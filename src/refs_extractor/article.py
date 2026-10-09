@@ -3,7 +3,7 @@ import re
 import sys
 from .wikilist import extract_list_items
 from .wikiapi import get_current_timestamp, get_wikipedia_article
-from wiki_config import get_reference_sections, get_citation_template_prefixes, get_citation_template_exact
+from .wiki_config import get_reference_sections, get_citation_template_prefixes, get_citation_template_exact
 from citation_normalizer import sanitize_ref_name as _sanitize_ref_name, sanitize_extracted_name as _sanitize_extracted_name, normalize_template_name as _normalize_template_name
 
 # Unicode punctuation that may cling to extracted URLs (curly quotes, guillemets, etc.)

@@ -17,23 +17,30 @@ References can contain any arbitrary wikitext.
 
 ## Setup
 
-1. `git clone https://github.com/internetarchive/wiki-references-extractor refs_extractor`
+1. `git clone https://github.com/internetarchive/wiki-references-extractor`
 
-2. `cd refs_extractor`
+2. `cd wiki-references-extractor`
 
-3. `python3 -m venv venv`
+3. `python3 -m venv venv && source venv/bin/activate`
 
-4. `source venv/bin/activate`
+4. `pip install git+https://github.com/internetarchive/wiki-references-normalizer && pip install -e .`
+   (inside the WCD monorepo, where this repository is the `packages/extractor`
+   submodule, `uv sync` at the workspace root does this for you)
 
-5. `pip3 install -r requirements.txt`
-
-6. Copy `example.env` to `.env` and configure your contact email. Optionally, add a secondary product token to the User-Agent:
+5. Copy `example.env` to `.env` and configure your contact email. Optionally, add a secondary product token to the User-Agent:
 
 ```
 CONTACT_EMAIL=your-email@example.com
 # Example optional secondary token appended to User-Agent:
 # SECONDARY_USER_AGENT=YourApp/2.3
 ```
+
+Per-wiki configuration (reference-section titles, citation template names)
+lives in `src/refs_extractor/wikis.yaml` and is read through
+`refs_extractor.wiki_config`. Syntactic normalization of the extracted strings
+is provided by the separate
+[`wiki-citation-normalizer`](https://github.com/internetarchive/wiki-references-normalizer)
+package (`citation_normalizer`), which this package depends on.
 
 ## Command-line usage
 
@@ -43,21 +50,21 @@ First, make sure you have the virtual environment activated:
 
 To get a list of wikitext reference strings for an article, run the extractor with the name of the title. Use quote marks if there are spaces, or use underscores in place of spaces.
 
-`python3 -m refs_extractor "Easter Island"`
+`refs-extractor "Easter Island"`
 
 By default, each reference is printed as raw wikitext, separated by two newlines. This is to help visually distinguish between individual references when there are multi-line reference strings.
 
 To print the full JSON output (including page/revision metadata and per-reference extracted fields), add `--full`:
 
-`python3 -m refs_extractor --full "Easter Island"`
+`refs-extractor --full "Easter Island"`
 
 To request references for an article as of a certain point in time, specify a timestamp in the `YYYY-MM-DDTHH:mm:ssZ` format:
 
-`python3 -m refs_extractor "Easter Island" 2004-01-01T00:00:00Z`
+`refs-extractor "Easter Island" 2004-01-01T00:00:00Z`
 
 ## Usage in code
 
-First, make sure that the dependencies in `requirements.txt` are installed.
+First, make sure the package is installed (see Setup).
 
 ### From page title
 

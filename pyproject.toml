@@ -1,0 +1,30 @@
+[project]
+name = "wiki-references-extractor"
+version = "0.3.0"
+description = "Extract reference strings (ref tags, shorthand templates, endnotes, external links) from MediaWiki wikitext"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "mwparserfromhell>=0.6.4",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "wiki-citation-normalizer>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+refs-extractor = "refs_extractor.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+refs_extractor = ["wikis.yaml"]
