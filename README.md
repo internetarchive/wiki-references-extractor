@@ -125,6 +125,22 @@ Each reference is a dictionary with the following keys:
 - `offset_start`: starting character offset (inclusive)
 - `length`: length of the raw reference in characters
 - `reference_type`: int enum describing the type (`0`=other, `1`=inline, `2`=endnote)
+- `candidate_kind`: which scanner found it: `ref`, `shorthand`, `list_item` or `external_link`
+- `citation_type`: `ref_tag`, `template`, `bare_url`, `endnote`, `shorthand` or `external_link`
+  (`template` and `shorthand` are decided by the domain's `citation_templates` /
+  `shorthand_templates` in `wikis.yaml`)
 - `reference_name`: the name attribute of the `<ref>` tag, if any
 - `templates`: list of parsed template calls found within the reference
 - `urls`: sorted list of URLs found within the reference
+
+Self-closing `<ref name="X" />` tags are **not** references: they reuse a
+citation defined elsewhere on the page. `extract_all(wikitext, domain=…)`
+returns both lists:
+
+```python
+from refs_extractor.article import extract_all
+
+out = extract_all(wikitext)
+out["references"]   # as above
+out["reuses"]       # one {"ref_name", "offset_start", "length"} per self-closing tag
+```

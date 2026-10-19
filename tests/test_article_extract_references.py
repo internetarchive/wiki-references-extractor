@@ -1,4 +1,4 @@
-from refs_extractor.article import extract_references
+from refs_extractor.article import CITATION_TYPES, classify_citation_type, extract_all, extract_references, strip_ref_wrapper
 
 
 def _by_raw(results):
@@ -48,11 +48,66 @@ def test_extract_references_types_and_offsets_and_dedupe_external_links():
     assert "https://example.com/a" not in by_raw
 
 
-def test_extract_references_self_closing_ref_name():
-    wikitext = "X <ref name=bar /> Y"
-    results = extract_references(wikitext)
-    by_raw = _by_raw(results)
-    raw = "<ref name=bar />"
-    assert raw in by_raw
-    assert by_raw[raw]["reference_name"] == "bar"
-    assert by_raw[raw]["offset_start"] == wikitext.find(raw)
+def test_self_closing_refs_are_reuse_events_not_references():
+    wikitext = 'X <ref name=bar /> Y <ref name="bar"/> Z <ref name="baz" group="n" /> <ref name=qux>body</ref> <ref name=qux />'
+    out = extract_all(wikitext)
+    # no reference is emitted for a self-closing tag, in either API
+    assert [r["raw_reference"] for r in out["references"]] == ["<ref name=qux>body</ref>"]
+    assert extract_references(wikitext) == out["references"]
+    # one reuse per occurrence, in document order, with offsets — the same
+    # text twice is NOT collapsed the way reference texts are
+    reuses = out["reuses"]
+    assert [r["ref_name"] for r in reuses] == ["bar", "bar", "baz", "qux"]
+    assert reuses[0]["offset_start"] == wikitext.find("<ref name=bar />")
+    assert reuses[0]["length"] == len("<ref name=bar />")
+    assert reuses[1]["offset_start"] == wikitext.find('<ref name="bar"/>')
+    assert reuses[3]["offset_start"] == wikitext.rfind("<ref name=qux />")
+    # a self-closing tag without a name is nothing
+    assert extract_all("<ref/> <ref />")["reuses"] == []
+
+
+def test_candidate_kind_and_citation_type():
+    wikitext = (
+        "A<ref>{{cite web |url=https://e.org/1 |title=T}}</ref> "
+        "B<ref name=p>Smith, J. (2001). ''Book''. Press.</ref> "
+        "C<ref>https://e.org/2</ref> "
+        "D<ref>[https://e.org/3 label text]</ref> "
+        "E<ref>see [https://e.org/4] and more</ref> "
+        "F {{sfn|Smith|2001|p=3}} G {{harvnb|Jones|1999}} H {{Harvp|Lee|2010}}\n"
+        "\n==References==\n"
+        "* Doe, J. (1990). ''Endnote''.\n"
+        "\n==Text==\n"
+        "Bare https://e.org/5 and [https://e.org/6 bracketed].\n"
+    )
+    refs = extract_references(wikitext)
+    kinds = {r["raw_reference"]: (r["candidate_kind"], r["citation_type"]) for r in refs}
+    assert kinds["<ref>{{cite web |url=https://e.org/1 |title=T}}</ref>"] == ("ref", "template")
+    assert kinds["<ref name=p>Smith, J. (2001). ''Book''. Press.</ref>"] == ("ref", "ref_tag")
+    assert kinds["<ref>https://e.org/2</ref>"] == ("ref", "bare_url")
+    assert kinds["<ref>[https://e.org/3 label text]</ref>"] == ("ref", "bare_url")
+    assert kinds["<ref>see [https://e.org/4] and more</ref>"] == ("ref", "ref_tag")
+    assert kinds["{{sfn|Smith|2001|p=3}}"] == ("shorthand", "shorthand")
+    assert kinds["{{harvnb|Jones|1999}}"] == ("shorthand", "shorthand")
+    assert kinds["{{Harvp|Lee|2010}}"] == ("shorthand", "shorthand")
+    assert kinds["* Doe, J. (1990). ''Endnote''."] == ("list_item", "endnote")
+    assert kinds["https://e.org/5"] == ("external_link", "external_link")
+    assert kinds["[https://e.org/6 bracketed]"] == ("external_link", "external_link")
+    assert {t for _, t in kinds.values()} <= set(CITATION_TYPES)
+
+
+def test_citation_type_uses_domain_template_config():
+    tpl = [{"template_name": "Cita web"}]
+    assert classify_citation_type("ref", "<ref>{{Cita web|url=x}}</ref>", tpl, domain="it.wikipedia.org") == "template"
+    assert classify_citation_type("ref", "<ref>{{Cita web|url=x}}</ref>", tpl, domain="en.wikipedia.org") == "ref_tag"
+    assert classify_citation_type("ref", "<ref>{{Citation|title=x}}</ref>", [{"template_name": "Citation"}]) == "template"
+    assert classify_citation_type("ref", "<ref>{{cite_book|title=x}}</ref>", [{"template_name": "cite_book"}]) == "template"
+    # it.wikipedia does not list {{harvp}} as shorthand
+    assert [r["citation_type"] for r in extract_references("A {{harvp|X|2000}} B", domain="it.wikipedia.org")] == []
+    assert [r["citation_type"] for r in extract_references("A {{harvnb|X|2000}} B", domain="it.wikipedia.org")] == ["shorthand"]
+
+
+def test_strip_ref_wrapper():
+    assert strip_ref_wrapper('<ref name="a" group=n>inner</ref>') == "inner"
+    assert strip_ref_wrapper("<REF>x</REF >") == "x"
+    assert strip_ref_wrapper("{{sfn|A|2000}}") == "{{sfn|A|2000}}"
+    assert strip_ref_wrapper("<ref>unclosed") == "unclosed"

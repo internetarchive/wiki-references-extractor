@@ -31,3 +31,15 @@ def get_citation_template_exact(domain: str) -> list:
     if isinstance(tpl_config, dict):
         return tpl_config.get("exact", [])
     return []
+
+
+_DEFAULT_SHORTHAND = ["sfn"]
+
+
+def get_shorthand_templates(domain: str) -> list:
+    """Standalone shorthand (author-date) templates that count as references
+    outside ``<ref>`` tags, lower-cased with spaces for underscores."""
+    names = get_wiki_config(domain).get("shorthand_templates")
+    if not names:
+        names = _DEFAULT_SHORTHAND
+    return [str(n).strip().replace("_", " ").lower() for n in names]

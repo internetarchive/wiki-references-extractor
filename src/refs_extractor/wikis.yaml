@@ -1,3 +1,10 @@
+# Per-domain extraction rules.
+#   reference_sections:   level-2 section titles whose list items are endnotes
+#   citation_templates:   templates that make a reference a 'template' citation
+#                         (prefixes match the start of the name, exact match whole)
+#   shorthand_templates:  standalone author-date templates ({{sfn}} family) that
+#                         are references in their own right outside <ref> tags
+# A domain without an entry uses the en.wikipedia.org rules.
 en.wikipedia.org:
   reference_sections:
     - articles
@@ -16,6 +23,17 @@ en.wikipedia.org:
       - cite
     exact:
       - citation
+  shorthand_templates:
+    - sfn
+    - sfnp
+    - sfnm
+    - harvnb
+    - harvp
+    - harv
+    - harvtxt
+    - harvcol
+    - harvcolnb
+    - harvcoltxt
 it.wikipedia.org:
   reference_sections:
     - note
@@ -32,6 +50,9 @@ it.wikipedia.org:
       - cite
     exact:
       - citazione
+  shorthand_templates:
+    - sfn
+    - harvnb
 af.wikipedia.org:
   reference_sections:
     - verwysing
@@ -48,3 +69,6 @@ af.wikipedia.org:
       - cite
     exact:
       - verwysing
+  shorthand_templates:
+    - sfn
+    - harvnb
