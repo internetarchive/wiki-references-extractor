@@ -1,4 +1,4 @@
-from refs_extractor.article import CITATION_TYPES, classify_citation_type, extract_all, extract_references, strip_ref_wrapper
+from refs_extractor.article import CITATION_TYPES, classify_citation_type, extract_all, extract_references, extract_urls_from_text, strip_ref_wrapper
 
 
 def _by_raw(results):
@@ -111,3 +111,25 @@ def test_strip_ref_wrapper():
     assert strip_ref_wrapper("<REF>x</REF >") == "x"
     assert strip_ref_wrapper("{{sfn|A|2000}}") == "{{sfn|A|2000}}"
     assert strip_ref_wrapper("<ref>unclosed") == "unclosed"
+
+
+def test_scheme_without_host_is_not_a_link():
+    """Rehearsal-shard finding: ``<nowiki>http://</nowiki>`` (help text) and
+    ``[http:// vandalism]`` / ``[http://\\nwww.x.com]`` were extracted as
+    external links with no URL in them. MediaWiki renders all of these as
+    text: a URL needs at least one URL character after the scheme, a
+    bracketed link's URL starts right after ``[``, and ``]`` is on the same line."""
+    wikitext = (
+        "Type <nowiki>http://</nowiki>'' then the address.\n"
+        "[http:// LIAR! LIAR! archives.cnn.com/2000/story]\n"
+        "[http://\nwww.example.com/poll.htm]\n"
+        "ftp://</nowiki>''at\n"
+        "A real one: [https://e.org/ok label] and https://e.org/bare\n"
+    )
+    refs = extract_references(wikitext)
+    assert sorted(r["raw_reference"] for r in refs) == ["[https://e.org/ok label]", "https://e.org/bare"]
+    assert extract_urls_from_text('see http://</nowiki> and "https://e.org/q?a=1" or <https://e.org/r>') == {"https://e.org/q?a=1", "https://e.org/r"}
+    # the same rule for the bare_url ref classification
+    assert classify_citation_type("ref", "<ref>http://</nowiki></ref>", []) == "ref_tag"
+    assert classify_citation_type("ref", "<ref>[http:// label]</ref>", []) == "ref_tag"
+    assert classify_citation_type("ref", "<ref>[https://e.org/x label]</ref>", []) == "bare_url"

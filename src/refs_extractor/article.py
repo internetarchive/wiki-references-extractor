@@ -17,9 +17,17 @@ def _strip_trailing_url_punct(url: str) -> str:
     return url
 
 
+# A URL is a scheme followed by at least one URL character. MediaWiki's URL
+# character set excludes whitespace, ``[]<>"``; ``|`` and ``}`` are excluded
+# too so a URL inside a template parameter ends at the parameter. Requiring
+# one character after ``://`` rejects ``<nowiki>http://</nowiki>`` and
+# ``[http:// label]``, which render as text, not links.
+_URL_CHARS = r'[^\s\[\]<>"\|\}]'
+_URL_RE = re.compile(r'(?:git|https?|ftps?)://' + _URL_CHARS + '+')
+
+
 def extract_urls_from_text(text):
-    url_regex = re.compile(r'(?:git|https?|ftps?)://[^\s\]\|\}]+')
-    result = set(_strip_trailing_url_punct(u) for u in url_regex.findall(text))
+    result = set(_strip_trailing_url_punct(u) for u in _URL_RE.findall(text))
     result.discard('')
     return result
 
@@ -101,7 +109,7 @@ CITATION_TYPES = ("ref_tag", "template", "bare_url", "endnote", "shorthand", "ex
 
 _REF_OPEN_RE = re.compile(r"^<ref\b[^>]*>", re.IGNORECASE | re.DOTALL)
 _REF_CLOSE_RE = re.compile(r"</ref\s*>\s*$", re.IGNORECASE)
-_BARE_URL_RE = re.compile(r"^(?:(?:git|https?|ftps?)://\S+|\[(?:git|https?|ftps?)://\S+(?:\s[^\]]*)?\])$")
+_BARE_URL_RE = re.compile(r"^(?:(?:git|https?|ftps?)://" + _URL_CHARS + r"+|\[(?:git|https?|ftps?)://" + _URL_CHARS + r"+(?:[ \t][^\]\n]*)?\])$")
 
 
 def strip_ref_wrapper(raw_reference: str) -> str:
@@ -442,7 +450,9 @@ def _scan_list_item_references(wikitext: str, ignored_spans, occupied_spans, fou
     return results
 
 
-_BRACKETED_EXTLINK_RE = re.compile(r"\[(?:git|https?|ftps?)://")
+# ``[url label]``: the URL starts right after ``[`` (no space or newline) and
+# the closing ``]`` is on the same line.
+_BRACKETED_EXTLINK_RE = re.compile(r"\[(?:git|https?|ftps?)://" + _URL_CHARS)
 
 
 def _scan_external_links(wikitext: str, ignored_spans, occupied_spans, found_urls):
@@ -455,7 +465,7 @@ def _scan_external_links(wikitext: str, ignored_spans, occupied_spans, found_url
         if _span_contains(start, ignored_spans) or any(_span_overlaps(start, start + 1, s, e) for s, e in occupied_spans):
             continue
         end = wikitext.find("]", start + 1)
-        if end == -1:
+        if end == -1 or "\n" in wikitext[start:end]:
             continue
         end += 1
         if any(_span_overlaps(start, end, s, e) for s, e in occupied_spans):
@@ -472,8 +482,7 @@ def _scan_external_links(wikitext: str, ignored_spans, occupied_spans, found_url
         })
 
     # 2) Bare URLs
-    url_regex = re.compile(r'(?:git|https?|ftps?)://[^\s\]\|\}]+')
-    for m in url_regex.finditer(wikitext):
+    for m in _URL_RE.finditer(wikitext):
         start = m.start()
         end = m.end()
         if _span_contains(start, ignored_spans) or any(_span_overlaps(start, end, s, e) for s, e in occupied_spans):
