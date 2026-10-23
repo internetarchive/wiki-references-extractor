@@ -133,3 +133,21 @@ def test_scheme_without_host_is_not_a_link():
     assert classify_citation_type("ref", "<ref>http://</nowiki></ref>", []) == "ref_tag"
     assert classify_citation_type("ref", "<ref>[http:// label]</ref>", []) == "ref_tag"
     assert classify_citation_type("ref", "<ref>[https://e.org/x label]</ref>", []) == "bare_url"
+
+
+def test_template_cache_gives_same_results_and_reuses_entries():
+    rev1 = (
+        "A <ref>{{cite web|url=https://example.com/a|title=A}}</ref> "
+        "B <ref name=b>{{cite book|title=B|year=2001}}</ref>\n"
+    )
+    rev2 = rev1 + "C <ref>{{cite news|title=C}}</ref>\n"
+    cache = {}
+    first = extract_all(rev1, template_cache=cache)
+    assert first == extract_all(rev1)
+    assert len(cache) == 2
+    second = extract_all(rev2, template_cache=cache)
+    assert second == extract_all(rev2)
+    assert len(cache) == 3
+    # the repeated reference's templates come from the cache, not a fresh parse
+    a_text = "<ref>{{cite web|url=https://example.com/a|title=A}}</ref>"
+    assert _by_raw(second["references"])[a_text]["templates"] is cache[a_text]

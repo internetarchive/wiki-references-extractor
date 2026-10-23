@@ -499,7 +499,7 @@ def _scan_external_links(wikitext: str, ignored_spans, occupied_spans, found_url
 
     return results
 
-def extract_all(wikitext, domain: str = "en.wikipedia.org"):
+def extract_all(wikitext, domain: str = "en.wikipedia.org", template_cache: dict | None = None):
     """Extract references and named-ref reuse events from wikitext.
 
     Returns ``{"references": [...], "reuses": [...]}``.
@@ -517,6 +517,14 @@ def extract_all(wikitext, domain: str = "en.wikipedia.org"):
     Each reuse dict (one per self-closing ``<ref name="X" />`` occurrence) has
     ``ref_name``, ``offset_start`` and ``length``. Reuses are not references:
     they resolve to the defining citation through ref_name_links (Stage 5).
+
+    ``template_cache``, if given, is a dict from reference text to its
+    ``extract_templates_from_text`` result, filled as references are seen and
+    reused for identical text. A caller processing many revisions of one page
+    can pass the same dict for each revision: nearly every reference repeats
+    from one revision to the next. Cached template lists are shared between
+    results, so callers must not mutate them. The cache is the caller's to
+    bound and clear.
     """
     ignored_spans = _find_comment_spans(wikitext)
     found_urls = set()
@@ -572,7 +580,12 @@ def extract_all(wikitext, domain: str = "en.wikipedia.org"):
 
         seen_texts.add(ref_text)
         used_spans.append((start, end))
-        templates = extract_templates_from_text(ref_text)
+        if template_cache is None:
+            templates = extract_templates_from_text(ref_text)
+        else:
+            templates = template_cache.get(ref_text)
+            if templates is None:
+                templates = template_cache[ref_text] = extract_templates_from_text(ref_text)
         results.append({
             "raw_reference": ref_text,
             "offset_start": start,
