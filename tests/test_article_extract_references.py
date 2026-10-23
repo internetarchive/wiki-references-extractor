@@ -151,3 +151,23 @@ def test_template_cache_gives_same_results_and_reuses_entries():
     # the repeated reference's templates come from the cache, not a fresh parse
     a_text = "<ref>{{cite web|url=https://example.com/a|title=A}}</ref>"
     assert _by_raw(second["references"])[a_text]["templates"] is cache[a_text]
+
+
+def test_span_set_matches_linear_overlap_check():
+    import random
+
+    from refs_extractor.article import _span_overlaps, _SpanSet
+
+    rng = random.Random(7)
+    for _ in range(300):
+        spans = _SpanSet(rng.randint(0, 60))
+        plain = []
+        for _ in range(rng.randint(0, 12)):
+            s = rng.randint(-3, 70)
+            span = (s, s + rng.randint(-2, 15))
+            spans.append(span)
+            plain.append(span)
+            for _ in range(20):
+                a = rng.randint(-5, 80)
+                b = a + rng.randint(-2, 12)
+                assert spans.overlaps(a, b) == any(_span_overlaps(a, b, x, y) for x, y in plain), (plain, a, b)

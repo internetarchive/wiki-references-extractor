@@ -151,6 +151,43 @@ def _span_overlaps(a_start, a_end, b_start, b_end):
     return not (a_end <= b_start or b_end <= a_start)
 
 
+class _SpanSet:
+    """Half-open spans claimed by earlier candidates, with a fast overlap test.
+
+    ``overlaps(a, b)`` answers exactly what ``any(_span_overlaps(a, b, s, e)
+    for s, e in spans)`` answers, but from a byte mask of claimed positions
+    (``bytearray.find`` runs in C, in time proportional to the span tested)
+    rather than a scan of every earlier span, which made each revision's
+    extraction quadratic in its reference count. What the mask can't represent
+    (empty or negative spans, and empty or negative queries) falls back to the
+    plain comparison.
+    """
+
+    __slots__ = ("_mask", "_spans", "_odd")
+
+    def __init__(self, size: int = 0):
+        self._mask = bytearray(size)
+        self._spans = []  # every span, for the fallback
+        self._odd = []    # spans not in the mask: empty, or starting before 0
+
+    def append(self, span) -> None:
+        start, end = span
+        self._spans.append((start, end))
+        if end <= start or start < 0:
+            self._odd.append((start, end))
+            return
+        if end > len(self._mask):
+            self._mask.extend(bytes(end - len(self._mask)))
+        self._mask[start:end] = b"\x01" * (end - start)
+
+    def overlaps(self, start: int, end: int) -> bool:
+        if end <= start or start < 0:
+            return any(_span_overlaps(start, end, s, e) for s, e in self._spans)
+        if self._mask.find(1, start, end) != -1:
+            return True
+        return any(_span_overlaps(start, end, s, e) for s, e in self._odd)
+
+
 def _span_contains(pos: int, spans) -> bool:
     for s, e in spans:
         if s <= pos < e:
@@ -287,7 +324,7 @@ def _scan_sfn_templates(wikitext: str, ignored_spans, occupied_spans, domain: st
         start = wikitext.find("{{", i)
         if start == -1:
             break
-        if _span_contains(start, ignored_spans) or any(_span_overlaps(start, start + 2, s, e) for s, e in occupied_spans):
+        if _span_contains(start, ignored_spans) or occupied_spans.overlaps(start, start + 2):
             i = start + 2
             continue
 
@@ -428,7 +465,7 @@ def _scan_list_item_references(wikitext: str, ignored_spans, occupied_spans, fou
         title_norm = title_text.lower()
 
         for raw_item, start, end in _extract_list_items_with_offsets(section_body, body_start):
-            if _span_contains(start, ignored_spans) or any(_span_overlaps(start, end, s, e) for s, e in occupied_spans):
+            if _span_contains(start, ignored_spans) or occupied_spans.overlaps(start, end):
                 continue
 
             extracted_urls = extract_urls_from_text(raw_item)
@@ -462,13 +499,13 @@ def _scan_external_links(wikitext: str, ignored_spans, occupied_spans, found_url
     # 1) Bracketed external links: [http://... label]
     for m in _BRACKETED_EXTLINK_RE.finditer(wikitext):
         start = m.start()
-        if _span_contains(start, ignored_spans) or any(_span_overlaps(start, start + 1, s, e) for s, e in occupied_spans):
+        if _span_contains(start, ignored_spans) or occupied_spans.overlaps(start, start + 1):
             continue
         end = wikitext.find("]", start + 1)
         if end == -1 or "\n" in wikitext[start:end]:
             continue
         end += 1
-        if any(_span_overlaps(start, end, s, e) for s, e in occupied_spans):
+        if occupied_spans.overlaps(start, end):
             continue
         raw = wikitext[start:end]
         urls = extract_urls_from_text(raw)
@@ -485,7 +522,7 @@ def _scan_external_links(wikitext: str, ignored_spans, occupied_spans, found_url
     for m in _URL_RE.finditer(wikitext):
         start = m.start()
         end = m.end()
-        if _span_contains(start, ignored_spans) or any(_span_overlaps(start, end, s, e) for s, e in occupied_spans):
+        if _span_contains(start, ignored_spans) or occupied_spans.overlaps(start, end):
             continue
         url = m.group(0)
         if url in found_urls:
@@ -528,7 +565,7 @@ def extract_all(wikitext, domain: str = "en.wikipedia.org", template_cache: dict
     """
     ignored_spans = _find_comment_spans(wikitext)
     found_urls = set()
-    occupied_spans = []  # spans for reference types that should suppress external links
+    occupied_spans = _SpanSet(len(wikitext))  # spans for reference types that should suppress external links
     reuses = []
 
     # 1) <ref>...</ref>; <ref ... /> becomes a reuse event
@@ -563,7 +600,7 @@ def extract_all(wikitext, domain: str = "en.wikipedia.org", template_cache: dict
 
     # Build final results preserving the existing return shape and roughly the old dedupe semantics
     results = []
-    used_spans = []
+    used_spans = _SpanSet(len(wikitext))
     seen_texts = set()
 
     for c in candidates:
@@ -574,7 +611,7 @@ def extract_all(wikitext, domain: str = "en.wikipedia.org", template_cache: dict
             continue
         if start is None or end is None:
             continue
-        if any(_span_overlaps(start, end, s, e) for s, e in used_spans):
+        if used_spans.overlaps(start, end):
             # Try later occurrences of the same raw text (if any)
             continue
 
