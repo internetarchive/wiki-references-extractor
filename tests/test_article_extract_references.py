@@ -171,3 +171,38 @@ def test_span_set_matches_linear_overlap_check():
                 a = rng.randint(-5, 80)
                 b = a + rng.randint(-2, 12)
                 assert spans.overlaps(a, b) == any(_span_overlaps(a, b, x, y) for x, y in plain), (plain, a, b)
+
+
+def test_references_tag_is_not_a_ref_tag():
+    wikitext = (
+        'A <ref name="a">https://a.example/x</ref>\n'
+        "==References==\n"
+        "<references />\n"
+        "<references group=n/>\n"
+        '<references>\n<ref name="b">https://b.example/y</ref>\n</references>\n'
+    )
+    out = extract_all(wikitext)
+    raws = [r["raw_reference"] for r in out["references"]]
+    assert raws == [
+        '<ref name="a">https://a.example/x</ref>',
+        '<ref name="b">https://b.example/y</ref>',
+    ]
+    assert out["reuses"] == []
+
+
+def test_list_item_of_only_internal_links_is_not_a_reference():
+    wikitext = (
+        "==References==\n"
+        "* [[Other article]]\n"
+        "* [[Foo]] [[Bar|bar]]\n"
+        "* Smith, J. ''A Book'', 1999\n"
+        "* [[Foo]] https://c.example/z\n"
+    )
+    raws = [r["raw_reference"] for r in extract_all(wikitext)["references"]]
+    assert raws == ["* Smith, J. ''A Book'', 1999", "* [[Foo]] https://c.example/z"]
+
+
+def test_template_parameter_values_are_stripped():
+    out = extract_all("X <ref>{{cite web |url= https://a.example/x |title= T \n}}</ref>")
+    params = out["references"][0]["templates"][0]["parameters"]
+    assert params == [{"key": "url", "value": "https://a.example/x"}, {"key": "title", "value": "T"}]
