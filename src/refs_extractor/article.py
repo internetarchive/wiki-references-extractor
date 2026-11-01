@@ -3,7 +3,7 @@ import re
 import sys
 from .wikilist import extract_list_items
 from .wikiapi import get_current_timestamp, get_wikipedia_article
-from wiki_config import get_reference_sections, get_citation_template_prefixes, get_citation_template_exact
+from .wiki_config import get_reference_sections, get_citation_template_prefixes, get_citation_template_exact, get_shorthand_templates
 from citation_normalizer import sanitize_ref_name as _sanitize_ref_name, sanitize_extracted_name as _sanitize_extracted_name, normalize_template_name as _normalize_template_name
 
 # Unicode punctuation that may cling to extracted URLs (curly quotes, guillemets, etc.)
@@ -17,9 +17,17 @@ def _strip_trailing_url_punct(url: str) -> str:
     return url
 
 
+# A URL is a scheme followed by at least one URL character. MediaWiki's URL
+# character set excludes whitespace, ``[]<>"``; ``|`` and ``}`` are excluded
+# too so a URL inside a template parameter ends at the parameter. Requiring
+# one character after ``://`` rejects ``<nowiki>http://</nowiki>`` and
+# ``[http:// label]``, which render as text, not links.
+_URL_CHARS = r'[^\s\[\]<>"\|\}]'
+_URL_RE = re.compile(r'(?:git|https?|ftps?)://' + _URL_CHARS + '+')
+
+
 def extract_urls_from_text(text):
-    url_regex = re.compile(r'(?:git|https?|ftps?)://[^\s\]\|\}]+')
-    result = set(_strip_trailing_url_punct(u) for u in url_regex.findall(text))
+    result = set(_strip_trailing_url_punct(u) for u in _URL_RE.findall(text))
     result.discard('')
     return result
 
@@ -90,8 +98,94 @@ def classify_reference_type(raw_reference: str, domain: str = "en.wikipedia.org"
     return 0
 
 
+# citation_type values (Stage 1, see docs/design/proposed_extractor.md):
+#   ref_tag        <ref>…</ref> whose content is prose / anything else
+#   template       <ref>…</ref> containing a citation template (wikis.yaml citation_templates)
+#   bare_url       <ref>…</ref> whose content is only a URL or one bracketed link
+#   endnote        a list item in a reference section (or carrying a URL)
+#   shorthand      a standalone {{sfn}}-family template (wikis.yaml shorthand_templates)
+#   external_link  a bracketed or bare URL outside any of the above
+CITATION_TYPES = ("ref_tag", "template", "bare_url", "endnote", "shorthand", "external_link")
+
+_REF_OPEN_RE = re.compile(r"^<ref\b[^>]*>", re.IGNORECASE | re.DOTALL)
+_REF_CLOSE_RE = re.compile(r"</ref\s*>\s*$", re.IGNORECASE)
+_BARE_URL_RE = re.compile(r"^(?:(?:git|https?|ftps?)://" + _URL_CHARS + r"+|\[(?:git|https?|ftps?)://" + _URL_CHARS + r"+(?:[ \t][^\]\n]*)?\])$")
+
+
+def strip_ref_wrapper(raw_reference: str) -> str:
+    """The inner content of ``<ref …>…</ref>``; other text is returned as is."""
+    m = _REF_OPEN_RE.match(raw_reference)
+    if not m:
+        return raw_reference
+    inner = raw_reference[m.end():]
+    return _REF_CLOSE_RE.sub("", inner)
+
+
+def _is_citation_template_name(name: str, domain: str) -> bool:
+    n = _normalize_template_name(name or "")
+    if not n:
+        return False
+    if n in set(get_citation_template_exact(domain)):
+        return True
+    return any(n.startswith(p) for p in get_citation_template_prefixes(domain))
+
+
+def classify_citation_type(candidate_kind: str, raw_reference: str, templates, domain: str = "en.wikipedia.org") -> str:
+    """Map the scanner that found a reference (plus its templates) to a ``citation_type``."""
+    if candidate_kind == "shorthand":
+        return "shorthand"
+    if candidate_kind == "list_item":
+        return "endnote"
+    if candidate_kind == "external_link":
+        return "external_link"
+    # candidate_kind == "ref"
+    if any(_is_citation_template_name((t or {}).get("template_name"), domain) for t in (templates or [])):
+        return "template"
+    inner = strip_ref_wrapper(raw_reference).strip()
+    if inner and _BARE_URL_RE.match(inner):
+        return "bare_url"
+    return "ref_tag"
+
+
 def _span_overlaps(a_start, a_end, b_start, b_end):
     return not (a_end <= b_start or b_end <= a_start)
+
+
+class _SpanSet:
+    """Half-open spans claimed by earlier candidates, with a fast overlap test.
+
+    ``overlaps(a, b)`` answers exactly what ``any(_span_overlaps(a, b, s, e)
+    for s, e in spans)`` answers, but from a byte mask of claimed positions
+    (``bytearray.find`` runs in C, in time proportional to the span tested)
+    rather than a scan of every earlier span, which made each revision's
+    extraction quadratic in its reference count. What the mask can't represent
+    (empty or negative spans, and empty or negative queries) falls back to the
+    plain comparison.
+    """
+
+    __slots__ = ("_mask", "_spans", "_odd")
+
+    def __init__(self, size: int = 0):
+        self._mask = bytearray(size)
+        self._spans = []  # every span, for the fallback
+        self._odd = []    # spans not in the mask: empty, or starting before 0
+
+    def append(self, span) -> None:
+        start, end = span
+        self._spans.append((start, end))
+        if end <= start or start < 0:
+            self._odd.append((start, end))
+            return
+        if end > len(self._mask):
+            self._mask.extend(bytes(end - len(self._mask)))
+        self._mask[start:end] = b"\x01" * (end - start)
+
+    def overlaps(self, start: int, end: int) -> bool:
+        if end <= start or start < 0:
+            return any(_span_overlaps(start, end, s, e) for s, e in self._spans)
+        if self._mask.find(1, start, end) != -1:
+            return True
+        return any(_span_overlaps(start, end, s, e) for s, e in self._odd)
 
 
 def _span_contains(pos: int, spans) -> bool:
@@ -141,7 +235,10 @@ def _extract_ref_name_from_tag_open(tag_open_text: str):
     return ""
 
 
-def _scan_ref_tags(wikitext: str, ignored_spans):
+def _scan_ref_tags(wikitext: str, ignored_spans, reuses=None):
+    """Scan ``<ref>`` tags. Content-bearing tags are returned as candidates;
+    self-closing ``<ref name="X" />`` tags are appended to ``reuses`` (one
+    entry per occurrence, with offset) and produce no candidate."""
     results = []
     n = len(wikitext)
     i = 0
@@ -193,12 +290,12 @@ def _scan_ref_tags(wikitext: str, ignored_spans):
 
         if self_closing:
             end = tag_open_end
-            results.append({
-                "raw_reference": wikitext[start:end],
-                "offset_start": start,
-                "offset_end": end,
-                "reference_name": ref_name,
-            })
+            if reuses is not None and ref_name:
+                reuses.append({
+                    "ref_name": ref_name,
+                    "offset_start": start,
+                    "length": end - start,
+                })
             i = end
             continue
 
@@ -222,16 +319,18 @@ def _scan_ref_tags(wikitext: str, ignored_spans):
 
 
 
-def _scan_sfn_templates(wikitext: str, ignored_spans, occupied_spans):
+def _scan_sfn_templates(wikitext: str, ignored_spans, occupied_spans, domain: str = "en.wikipedia.org"):
+    """Standalone shorthand templates (``wikis.yaml`` ``shorthand_templates``)."""
     results = []
     n = len(wikitext)
     i = 0
+    shorthand = set(get_shorthand_templates(domain))
 
     while i < n:
         start = wikitext.find("{{", i)
         if start == -1:
             break
-        if _span_contains(start, ignored_spans) or any(_span_overlaps(start, start + 2, s, e) for s, e in occupied_spans):
+        if _span_contains(start, ignored_spans) or occupied_spans.overlaps(start, start + 2):
             i = start + 2
             continue
 
@@ -245,7 +344,7 @@ def _scan_sfn_templates(wikitext: str, ignored_spans, occupied_spans):
         name = wikitext[name_start:j]
         name = _sanitize_extracted_name(name) or ""
         norm = _normalize_template_name(name)
-        if norm != "sfn":
+        if norm not in shorthand:
             i = start + 2
             continue
 
@@ -372,7 +471,7 @@ def _scan_list_item_references(wikitext: str, ignored_spans, occupied_spans, fou
         title_norm = title_text.lower()
 
         for raw_item, start, end in _extract_list_items_with_offsets(section_body, body_start):
-            if _span_contains(start, ignored_spans) or any(_span_overlaps(start, end, s, e) for s, e in occupied_spans):
+            if _span_contains(start, ignored_spans) or occupied_spans.overlaps(start, end):
                 continue
 
             extracted_urls = extract_urls_from_text(raw_item)
@@ -403,7 +502,9 @@ _INTERNAL_LINK_ONLY_RE = re.compile(
     r"$"
 )
 
-_BRACKETED_EXTLINK_RE = re.compile(r"\[(?:git|https?|ftps?)://")
+# ``[url label]``: the URL starts right after ``[`` (no space or newline) and
+# the closing ``]`` is on the same line.
+_BRACKETED_EXTLINK_RE = re.compile(r"\[(?:git|https?|ftps?)://" + _URL_CHARS)
 
 
 def _scan_external_links(wikitext: str, ignored_spans, occupied_spans, found_urls):
@@ -413,13 +514,13 @@ def _scan_external_links(wikitext: str, ignored_spans, occupied_spans, found_url
     # 1) Bracketed external links: [http://... label]
     for m in _BRACKETED_EXTLINK_RE.finditer(wikitext):
         start = m.start()
-        if _span_contains(start, ignored_spans) or any(_span_overlaps(start, start + 1, s, e) for s, e in occupied_spans):
+        if _span_contains(start, ignored_spans) or occupied_spans.overlaps(start, start + 1):
             continue
         end = wikitext.find("]", start + 1)
-        if end == -1:
+        if end == -1 or "\n" in wikitext[start:end]:
             continue
         end += 1
-        if any(_span_overlaps(start, end, s, e) for s, e in occupied_spans):
+        if occupied_spans.overlaps(start, end):
             continue
         raw = wikitext[start:end]
         urls = extract_urls_from_text(raw)
@@ -433,11 +534,10 @@ def _scan_external_links(wikitext: str, ignored_spans, occupied_spans, found_url
         })
 
     # 2) Bare URLs
-    url_regex = re.compile(r'(?:git|https?|ftps?)://[^\s\]\|\}]+')
-    for m in url_regex.finditer(wikitext):
+    for m in _URL_RE.finditer(wikitext):
         start = m.start()
         end = m.end()
-        if _span_contains(start, ignored_spans) or any(_span_overlaps(start, end, s, e) for s, e in occupied_spans):
+        if _span_contains(start, ignored_spans) or occupied_spans.overlaps(start, end):
             continue
         url = m.group(0)
         if url in found_urls:
@@ -451,54 +551,71 @@ def _scan_external_links(wikitext: str, ignored_spans, occupied_spans, found_url
 
     return results
 
-def extract_references(wikitext, include_offsets: bool = False, domain: str = "en.wikipedia.org"):
-    """
-    Extract raw references from the provided wikitext and return both the raw
-    reference text and its character offsets (offset_start, length) in the
-    original, UTF-8 decoded wikitext (prior to any normalization, expansion, or
-    rendering).
+def extract_all(wikitext, domain: str = "en.wikipedia.org", template_cache: dict | None = None):
+    """Extract references and named-ref reuse events from wikitext.
 
-    Returns a list of dicts with keys:
-    - raw_reference: the exact raw reference text as found in the wikitext
-    - offset_start: starting character offset (inclusive)
-    - length: length of the raw reference in characters
-    - reference_type: int enum describing the type (0=other, 1=inline, 2=endnote)
-    
-    Notes:
-    - The include_offsets parameter is accepted for compatibility with callers
-      that explicitly request offsets. Offsets are always computed by this
-      implementation; when include_offsets is False, the offsets are still
-      provided to maintain a consistent return shape.
+    Returns ``{"references": [...], "reuses": [...]}``.
+
+    Each reference dict has:
+    - raw_reference: the exact raw reference text (HTML comments removed)
+    - offset_start / length: character offsets in the decoded wikitext
+    - reference_type: int enum (0=other, 1=inline, 2=endnote)
+    - candidate_kind: which scanner found it: 'ref' | 'shorthand' | 'list_item' | 'external_link'
+    - citation_type: one of CITATION_TYPES (see classify_citation_type)
+    - reference_name: the ``name=`` attribute of a <ref>, else None
+    - templates: template calls inside the reference
+    - urls: URLs inside the reference, sorted
+
+    Each reuse dict (one per self-closing ``<ref name="X" />`` occurrence) has
+    ``ref_name``, ``offset_start`` and ``length``. Reuses are not references:
+    they resolve to the defining citation through ref_name_links (Stage 5).
+
+    ``template_cache``, if given, is a dict from reference text to its
+    ``extract_templates_from_text`` result, filled as references are seen and
+    reused for identical text. A caller processing many revisions of one page
+    can pass the same dict for each revision: nearly every reference repeats
+    from one revision to the next. Cached template lists are shared between
+    results, so callers must not mutate them. The cache is the caller's to
+    bound and clear.
     """
     ignored_spans = _find_comment_spans(wikitext)
     found_urls = set()
-    occupied_spans = []  # spans for reference types that should suppress external links
+    occupied_spans = _SpanSet(len(wikitext))  # spans for reference types that should suppress external links
+    reuses = []
 
-    # 1) <ref>...</ref> and <ref ... />
-    ref_candidates = _scan_ref_tags(wikitext, ignored_spans)
+    # 1) <ref>...</ref>; <ref ... /> becomes a reuse event
+    ref_candidates = _scan_ref_tags(wikitext, ignored_spans, reuses)
     for c in ref_candidates:
+        c["candidate_kind"] = "ref"
         occupied_spans.append((c["offset_start"], c["offset_end"]))
         for url in extract_urls_from_text(c["raw_reference"]):
             found_urls.add(url)
+    for r in reuses:
+        occupied_spans.append((r["offset_start"], r["offset_start"] + r["length"]))
 
-    # 2) {{Sfn ...}} templates (balanced braces), skipping those inside refs
-    sfn_candidates = _scan_sfn_templates(wikitext, ignored_spans, occupied_spans)
+    # 2) standalone shorthand templates (balanced braces), skipping those inside refs
+    sfn_candidates = _scan_sfn_templates(wikitext, ignored_spans, occupied_spans, domain=domain)
     for c in sfn_candidates:
+        c["candidate_kind"] = "shorthand"
         occupied_spans.append((c["offset_start"], c["offset_end"]))
         for url in extract_urls_from_text(c["raw_reference"]):
             found_urls.add(url)
 
     # 3) List items by section + line scanning, using section-title rules
     list_candidates = _scan_list_item_references(wikitext, ignored_spans, occupied_spans, found_urls, domain=domain)
+    for c in list_candidates:
+        c["candidate_kind"] = "list_item"
 
     # 4) External links not attached to any other reference type
     external_candidates = _scan_external_links(wikitext, ignored_spans, occupied_spans, found_urls)
+    for c in external_candidates:
+        c["candidate_kind"] = "external_link"
 
     candidates = ref_candidates + sfn_candidates + list_candidates + external_candidates
 
     # Build final results preserving the existing return shape and roughly the old dedupe semantics
     results = []
-    used_spans = []
+    used_spans = _SpanSet(len(wikitext))
     seen_texts = set()
 
     for c in candidates:
@@ -509,23 +626,43 @@ def extract_references(wikitext, include_offsets: bool = False, domain: str = "e
             continue
         if start is None or end is None:
             continue
-        if any(_span_overlaps(start, end, s, e) for s, e in used_spans):
+        if used_spans.overlaps(start, end):
             # Try later occurrences of the same raw text (if any)
             continue
 
         seen_texts.add(ref_text)
         used_spans.append((start, end))
+        if template_cache is None:
+            templates = extract_templates_from_text(ref_text)
+        else:
+            templates = template_cache.get(ref_text)
+            if templates is None:
+                templates = template_cache[ref_text] = extract_templates_from_text(ref_text)
         results.append({
             "raw_reference": ref_text,
             "offset_start": start,
             "length": end - start,
             "reference_type": classify_reference_type(ref_text, domain=domain),
+            "candidate_kind": c["candidate_kind"],
+            "citation_type": classify_citation_type(c["candidate_kind"], ref_text, templates, domain=domain),
             "reference_name": c.get("reference_name"),
-            "templates": extract_templates_from_text(ref_text),
+            "templates": templates,
             "urls": sorted(list(extract_urls_from_text(ref_text))),
         })
 
-    return results
+    reuses.sort(key=lambda r: r["offset_start"])
+    return {"references": results, "reuses": reuses}
+
+
+def extract_references(wikitext, include_offsets: bool = False, domain: str = "en.wikipedia.org"):
+    """The references of ``extract_all`` (kept for callers that want a list).
+
+    ``include_offsets`` is accepted for compatibility; offsets are always
+    included. Self-closing ``<ref name="X" />`` tags are no longer returned —
+    use ``extract_all`` for the reuse events.
+    """
+    return extract_all(wikitext, domain=domain)["references"]
+
 
 def extract_references_from_page(title, domain="en.wikipedia.org", as_of=None):
     if as_of is None:
