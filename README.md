@@ -17,13 +17,18 @@ References can contain any arbitrary wikitext.
 
 ## Setup
 
+Requires Python 3.10 or newer.
+
 1. `git clone https://github.com/internetarchive/wiki-references-extractor`
 
 2. `cd wiki-references-extractor`
 
 3. `python3 -m venv venv && source venv/bin/activate`
+   (on Windows: `py -m venv venv` then `venv\Scripts\activate`)
 
-4. `pip install git+https://github.com/internetarchive/wiki-references-normalizer && pip install -e .`
+4. `python -m pip install --upgrade pip` (an editable install of a
+   `pyproject.toml`-only package needs pip 21.3 or newer), then
+   `pip install git+https://github.com/internetarchive/wiki-references-normalizer && pip install -e .`
    (inside the WCD monorepo, where this repository is the `packages/extractor`
    submodule, `uv sync` at the workspace root does this for you)
 
@@ -46,7 +51,7 @@ package (`citation_normalizer`), which this package depends on.
 
 First, make sure you have the virtual environment activated:
 
-`source venv/bin/activate`
+`source venv/bin/activate` (on Windows: `venv\Scripts\activate`)
 
 To get a list of wikitext reference strings for an article, run the extractor with the name of the title. Use quote marks if there are spaces, or use underscores in place of spaces.
 
